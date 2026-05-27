@@ -68,7 +68,8 @@ async function handleMessage(message) {
   const text = (message.text || "").trim();
   if (!text) return;
 
-  if (pendingOrders.has(chatId) && !text.startsWith("/")) {
+  const orderKey = pendingOrderKey(chatId, message.from);
+  if (pendingOrders.has(orderKey) && !text.startsWith("/")) {
     return placePendingOrder(chatId, message.from, text);
   }
   if (pendingWithdrawals.has(chatId) && !text.startsWith("/")) {
@@ -106,7 +107,7 @@ async function handleMessage(message) {
       if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to use settings.");
       return showSettings(chatId);
     case "/cancel":
-      pendingOrders.delete(chatId);
+      pendingOrders.delete(orderKey);
       pendingWithdrawals.delete(chatId);
       return sendMessage(chatId, "Cancelled.");
     default:
@@ -172,7 +173,7 @@ async function handleCallback(callback) {
     return showExportLink(chatId, callback.from);
   }
   if (data === "cancel") {
-    pendingOrders.delete(chatId);
+    pendingOrders.delete(pendingOrderKey(chatId, callback.from));
     pendingWithdrawals.delete(chatId);
     return sendMessage(chatId, "Cancelled.", mainMenuButtons());
   }
@@ -187,7 +188,7 @@ async function handleCallback(callback) {
     const market = getCachedMarket(chatId, data.slice(4));
     if (!market) return sendMessage(chatId, "That market is no longer available. Send /markets again.");
 
-    pendingOrders.set(chatId, {
+    pendingOrders.set(pendingOrderKey(chatId, callback.from), {
       marketId: market.id,
       title: market.title,
       outcomeSide: market.outcomeSide,
@@ -195,7 +196,7 @@ async function handleCallback(callback) {
       price: market.price
     });
 
-    return sendMessage(chatId, `Amount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nSend an amount like 1 or 5.50, or /cancel.`);
+    return sendMessage(chatId, `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply with an amount like 1 or 5.50, or send /cancel.`);
   }
 }
 
@@ -275,7 +276,8 @@ async function showMarket(chatId, card, cardKey) {
 }
 
 async function placePendingOrder(chatId, from, amountText) {
-  const pending = pendingOrders.get(chatId);
+  const key = pendingOrderKey(chatId, from);
+  const pending = pendingOrders.get(key);
   if (!pending) return;
 
   const amount = Number(amountText);
@@ -297,7 +299,7 @@ async function placePendingOrder(chatId, from, amountText) {
       takerAmount
     });
 
-    pendingOrders.delete(chatId);
+    pendingOrders.delete(key);
     const status = result.autoMatch?.matched ? "filled/matched" : "open";
     const hashes = orderHashLines(result, true);
     return sendMessage(
@@ -423,7 +425,7 @@ async function claimWinnings(chatId, from, claimKey) {
 }
 
 async function startWithdrawal(chatId, from) {
-  pendingOrders.delete(chatId);
+  pendingOrders.delete(pendingOrderKey(chatId, from));
   const wallet = await ensureWallet(from);
   const portfolio = await backendGet(`/portfolio/${wallet.address}`);
   const balance = usdcBalance(portfolio.collateral);
@@ -580,6 +582,15 @@ function telegramUser(from = {}) {
     ...(from.first_name ? { firstName: from.first_name } : {}),
     ...(from.last_name ? { lastName: from.last_name } : {})
   };
+}
+
+function pendingOrderKey(chatId, from = {}) {
+  return `${chatId}:${from.id || "unknown"}`;
+}
+
+function userMention(from = {}) {
+  const name = from.username ? `@${from.username}` : [from.first_name, from.last_name].filter(Boolean).join(" ");
+  return name ? `${name}, this ticket is for you.` : "This ticket is for you.";
 }
 
 async function backendGet(path) {
