@@ -46,8 +46,7 @@ PUBLIC_URL=https://your-bot.up.railway.app npm run set-webhook
 /wallet
 /positions
 /claim
-/withdraw
-/export
+/settings
 /cancel
 /help
 ```

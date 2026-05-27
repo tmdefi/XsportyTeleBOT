@@ -23,8 +23,7 @@ const HELP_TEXT = [
   "/wallet - Show your deposit wallet",
   "/positions - View your positions",
   "/claim - Claim redeemable winnings",
-  "/withdraw - Withdraw USDC to another wallet",
-  "/export - Export your wallet private key",
+  "/settings - Support, social links, and wallet export",
   "/cancel - Cancel the current ticket",
   "/help - Show this menu"
 ].join("\n");
@@ -97,10 +96,8 @@ async function handleMessage(message) {
       return showPositions(chatId, message.from);
     case "/claim":
       return showClaims(chatId, message.from);
-    case "/withdraw":
-      return startWithdrawal(chatId, message.from);
-    case "/export":
-      return showExportLink(chatId, message.from);
+    case "/settings":
+      return showSettings(chatId);
     case "/cancel":
       pendingOrders.delete(chatId);
       pendingWithdrawals.delete(chatId);
@@ -133,6 +130,7 @@ async function handleCallback(callback) {
   if (data === "positions") return showPositions(chatId, callback.from);
   if (data === "claims") return showClaims(chatId, callback.from);
   if (data.startsWith("claim:")) return claimWinnings(chatId, callback.from, data.slice(6));
+  if (data === "settings") return showSettings(chatId);
   if (data === "withdraw") return startWithdrawal(chatId, callback.from);
   if (data === "withdraw_cancel") {
     pendingWithdrawals.delete(chatId);
@@ -175,7 +173,7 @@ async function start(chatId, from) {
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
       [{ text: "Claim Winnings", callback_data: "claims" }],
-      [{ text: "Withdraw USDC", callback_data: "withdraw" }]
+      [{ text: "Settings", callback_data: "settings" }]
     ]
   });
 }
@@ -186,8 +184,7 @@ async function showWallet(chatId, from) {
   const balance = usdcBalance(portfolio.collateral);
   return sendMessage(chatId, `Wallet address:\n${wallet.address}\n\nUSDC balance:\n${balance} USDC\n\nUse this address to deposit X Layer testnet USDC.`, {
     inline_keyboard: [
-      [{ text: "Withdraw USDC", callback_data: "withdraw" }],
-      [{ text: "Export Private Key", callback_data: "export" }]
+      [{ text: "Withdraw USDC", callback_data: "withdraw" }]
     ]
   });
 }
@@ -463,7 +460,9 @@ async function confirmWithdrawal(chatId, from) {
   const pending = pendingWithdrawals.get(chatId);
   if (!pending?.destination || !pending.amountUnits) {
     pendingWithdrawals.delete(chatId);
-    return sendMessage(chatId, "That withdrawal expired. Send /withdraw to start again.");
+    return sendMessage(chatId, "That withdrawal expired. Open Wallet to start again.", {
+      inline_keyboard: [[{ text: "Wallet", callback_data: "wallet" }]]
+    });
   }
 
   await sendMessage(chatId, "Sending withdrawal...");
@@ -524,6 +523,16 @@ async function showExportLink(chatId, from) {
       inline_keyboard: [[{ text: "Open Export Page", url: exportUrl }]]
     }
   );
+}
+
+async function showSettings(chatId) {
+  return sendMessage(chatId, "Settings", {
+    inline_keyboard: [
+      [{ text: "Export Private Key", callback_data: "export" }],
+      [{ text: "Support", url: "https://t.me/LocalDevNet" }],
+      [{ text: "X (Twitter)", url: "https://x.com/XsportyApp" }]
+    ]
+  });
 }
 
 async function ensureWallet(from) {
@@ -888,8 +897,7 @@ function mainMenuButtons() {
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
       [{ text: "Claim Winnings", callback_data: "claims" }],
-      [{ text: "Withdraw USDC", callback_data: "withdraw" }],
-      [{ text: "Export Private Key", callback_data: "export" }]
+      [{ text: "Settings", callback_data: "settings" }]
     ]
   };
 }
