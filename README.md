@@ -8,6 +8,7 @@ The bot is intentionally separate from the backend repo and Railway service. It 
 POST /telegram/wallet
 POST /telegram/orders
 POST /telegram/claims
+POST /telegram/withdrawals
 POST /telegram/export-link
 GET /markets/cards
 GET /portfolio/:account
@@ -45,6 +46,7 @@ PUBLIC_URL=https://your-bot.up.railway.app npm run set-webhook
 /wallet
 /positions
 /claim
+/withdraw
 /export
 /cancel
 /help

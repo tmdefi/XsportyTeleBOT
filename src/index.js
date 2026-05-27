@@ -11,6 +11,7 @@ const config = {
 const marketCache = new Map();
 const pendingOrders = new Map();
 const pendingSearches = new Set();
+const pendingWithdrawals = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 250;
 const MARKET_PAGE_SIZE = 10;
@@ -22,6 +23,7 @@ const HELP_TEXT = [
   "/wallet - Show your deposit wallet",
   "/positions - View your positions",
   "/claim - Claim redeemable winnings",
+  "/withdraw - Withdraw USDC to another wallet",
   "/export - Export your wallet private key",
   "/cancel - Cancel the current ticket",
   "/help - Show this menu"
@@ -69,6 +71,9 @@ async function handleMessage(message) {
   if (pendingOrders.has(chatId) && !text.startsWith("/")) {
     return placePendingOrder(chatId, message.from, text);
   }
+  if (pendingWithdrawals.has(chatId) && !text.startsWith("/")) {
+    return handleWithdrawalInput(chatId, message.from, text);
+  }
   if (pendingSearches.has(chatId) && !text.startsWith("/")) {
     pendingSearches.delete(chatId);
     return showMarkets(chatId, 0, text);
@@ -92,10 +97,13 @@ async function handleMessage(message) {
       return showPositions(chatId, message.from);
     case "/claim":
       return showClaims(chatId, message.from);
+    case "/withdraw":
+      return startWithdrawal(chatId, message.from);
     case "/export":
       return showExportLink(chatId, message.from);
     case "/cancel":
       pendingOrders.delete(chatId);
+      pendingWithdrawals.delete(chatId);
       return sendMessage(chatId, "Cancelled.");
     default:
       return sendMessage(chatId, HELP_TEXT, mainMenuButtons());
@@ -125,9 +133,16 @@ async function handleCallback(callback) {
   if (data === "positions") return showPositions(chatId, callback.from);
   if (data === "claims") return showClaims(chatId, callback.from);
   if (data.startsWith("claim:")) return claimWinnings(chatId, callback.from, data.slice(6));
+  if (data === "withdraw") return startWithdrawal(chatId, callback.from);
+  if (data === "withdraw_cancel") {
+    pendingWithdrawals.delete(chatId);
+    return sendMessage(chatId, "Withdrawal cancelled.", mainMenuButtons());
+  }
+  if (data === "withdraw_confirm") return confirmWithdrawal(chatId, callback.from);
   if (data === "export") return showExportLink(chatId, callback.from);
   if (data === "cancel") {
     pendingOrders.delete(chatId);
+    pendingWithdrawals.delete(chatId);
     return sendMessage(chatId, "Cancelled.", mainMenuButtons());
   }
 
@@ -159,7 +174,8 @@ async function start(chatId, from) {
     inline_keyboard: [
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
-      [{ text: "Claim Winnings", callback_data: "claims" }]
+      [{ text: "Claim Winnings", callback_data: "claims" }],
+      [{ text: "Withdraw USDC", callback_data: "withdraw" }]
     ]
   });
 }
@@ -169,7 +185,10 @@ async function showWallet(chatId, from) {
   const portfolio = await backendGet(`/portfolio/${wallet.address}`);
   const balance = usdcBalance(portfolio.collateral);
   return sendMessage(chatId, `Wallet address:\n${wallet.address}\n\nUSDC balance:\n${balance} USDC\n\nUse this address to deposit X Layer testnet USDC.`, {
-    inline_keyboard: [[{ text: "Export Private Key", callback_data: "export" }]]
+    inline_keyboard: [
+      [{ text: "Withdraw USDC", callback_data: "withdraw" }],
+      [{ text: "Export Private Key", callback_data: "export" }]
+    ]
   });
 }
 
@@ -368,6 +387,120 @@ async function claimWinnings(chatId, from, claimKey) {
       inline_keyboard: [
         [{ text: "View Positions", callback_data: "positions" }],
         [{ text: "Claim Winnings", callback_data: "claims" }]
+      ]
+    });
+  }
+}
+
+async function startWithdrawal(chatId, from) {
+  pendingOrders.delete(chatId);
+  const wallet = await ensureWallet(from);
+  const portfolio = await backendGet(`/portfolio/${wallet.address}`);
+  const balance = usdcBalance(portfolio.collateral);
+  pendingWithdrawals.set(chatId, {
+    step: "destination",
+    balanceUnits: collateralUnits(portfolio.collateral)
+  });
+  return sendMessage(
+    chatId,
+    `USDC balance: ${balance} USDC\n\nSend the destination wallet address, or /cancel.`
+  );
+}
+
+async function handleWithdrawalInput(chatId, from, text) {
+  const pending = pendingWithdrawals.get(chatId);
+  if (!pending) return;
+
+  if (pending.step === "destination") {
+    const destination = text.trim();
+    if (!isAddress(destination)) {
+      return sendMessage(chatId, "Send a valid EVM wallet address starting with 0x, or /cancel.");
+    }
+    pendingWithdrawals.set(chatId, {
+      ...pending,
+      step: "amount",
+      destination
+    });
+    return sendMessage(chatId, `Destination:\n${destination}\n\nSend the amount of USDC to withdraw, or /cancel.`);
+  }
+
+  if (pending.step === "amount") {
+    const amountUnits = parseUsdcAmount(text);
+    if (!amountUnits || amountUnits <= 0n) {
+      return sendMessage(chatId, "Send a valid USDC amount, like 1 or 5.50. Use /cancel to stop.");
+    }
+    if (pending.balanceUnits !== undefined && amountUnits > pending.balanceUnits) {
+      return sendMessage(chatId, `Insufficient USDC balance. Available: ${formatUsdcUnits(pending.balanceUnits)} USDC.`);
+    }
+
+    pendingWithdrawals.set(chatId, {
+      ...pending,
+      step: "confirm",
+      amountUnits,
+      amountDisplay: formatUsdcUnits(amountUnits)
+    });
+    return sendMessage(
+      chatId,
+      [
+        "Confirm withdrawal:",
+        "",
+        `Amount: ${formatUsdcUnits(amountUnits)} USDC`,
+        `To: ${pending.destination}`,
+        "",
+        "This sends USDC from your Xsporty bot wallet."
+      ].join("\n"),
+      {
+        inline_keyboard: [
+          [{ text: "Confirm Withdrawal", callback_data: "withdraw_confirm" }],
+          [{ text: "Cancel", callback_data: "withdraw_cancel" }]
+        ]
+      }
+    );
+  }
+}
+
+async function confirmWithdrawal(chatId, from) {
+  const pending = pendingWithdrawals.get(chatId);
+  if (!pending?.destination || !pending.amountUnits) {
+    pendingWithdrawals.delete(chatId);
+    return sendMessage(chatId, "That withdrawal expired. Send /withdraw to start again.");
+  }
+
+  await sendMessage(chatId, "Sending withdrawal...");
+  try {
+    const result = await backendPost("/telegram/withdrawals", {
+      ...telegramUser(from),
+      destination: pending.destination,
+      amount: pending.amountUnits.toString()
+    });
+    pendingWithdrawals.delete(chatId);
+    return sendMessage(
+      chatId,
+      [
+        htmlEscape("Withdrawal sent successfully."),
+        "",
+        htmlEscape(`Amount: ${formatUsdcUnits(pending.amountUnits)} USDC`),
+        htmlEscape(`To: ${result.destination || pending.destination}`),
+        hashLine("Transaction hash", result.transactionHash, true)
+      ].join("\n"),
+      {
+        inline_keyboard: [
+          [{ text: "Wallet", callback_data: "wallet" }],
+          [{ text: "View Positions", callback_data: "positions" }]
+        ]
+      },
+      {
+        parse_mode: "HTML",
+        disable_web_page_preview: true
+      }
+    );
+  } catch (error) {
+    console.error("Telegram withdrawal failed", error);
+    return sendMessage(chatId, `Withdrawal was not sent.\n\nReason: ${orderFailureMessage(error)}`, {
+      inline_keyboard: [
+        [{ text: "Wallet", callback_data: "wallet" }],
+        [{ text: "Try Withdrawal Again", callback_data: "withdraw" }],
+        [{ text: "Cancel", callback_data: "withdraw_cancel" }]
       ]
     });
   }
@@ -679,6 +812,8 @@ function orderFailureMessage(error) {
   }
   if (message.includes("Market not found")) return "This market is no longer available.";
   if (message.includes("Trading closed") || message.includes("Market closed")) return "Trading is closed for this market.";
+  if (message.includes("Insufficient USDC balance")) return "Insufficient USDC balance.";
+  if (message.includes("Withdrawal transaction failed")) return "Withdrawal transaction failed on-chain.";
   return message;
 }
 
@@ -690,15 +825,34 @@ function redeemablePositions(positions) {
 }
 
 function usdcBalance(collateral) {
+  return formatUsdcUnits(collateralUnits(collateral));
+}
+
+function collateralUnits(collateral) {
   const raw = typeof collateral === "object" && collateral !== null ? collateral.balance : collateral;
   try {
-    const value = BigInt(String(raw ?? "0"));
-    const whole = value / 1_000_000n;
-    const fraction = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
-    return fraction ? `${whole}.${fraction.slice(0, 2)}` : whole.toString();
+    return BigInt(String(raw ?? "0"));
   } catch {
-    return "0";
+    return 0n;
   }
+}
+
+function formatUsdcUnits(value) {
+  const units = BigInt(value || 0);
+  const whole = units / 1_000_000n;
+  const fraction = (units % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function parseUsdcAmount(value) {
+  const text = String(value || "").trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(text)) return 0n;
+  const [whole, fraction = ""] = text.split(".");
+  return BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, "0"));
+}
+
+function isAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(value || "").trim());
 }
 
 function orderHashLines(result, html = false) {
@@ -734,6 +888,7 @@ function mainMenuButtons() {
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
       [{ text: "Claim Winnings", callback_data: "claims" }],
+      [{ text: "Withdraw USDC", callback_data: "withdraw" }],
       [{ text: "Export Private Key", callback_data: "export" }]
     ]
   };

@@ -7,6 +7,7 @@ const commands = [
   { command: "wallet", description: "Show your deposit wallet" },
   { command: "positions", description: "View your positions" },
   { command: "claim", description: "Claim redeemable winnings" },
+  { command: "withdraw", description: "Withdraw USDC to another wallet" },
   { command: "export", description: "Export your wallet private key" },
   { command: "cancel", description: "Cancel the current ticket" },
   { command: "help", description: "Show available commands" }
