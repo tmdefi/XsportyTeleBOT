@@ -69,14 +69,15 @@ async function handleMessage(message) {
   if (!text) return;
 
   const orderKey = pendingOrderKey(chatId, message.from);
+  const searchKey = pendingSearchKey(chatId, message.from);
   if (pendingOrders.has(orderKey) && !text.startsWith("/")) {
     return placePendingOrder(chatId, message.from, text);
   }
   if (pendingWithdrawals.has(chatId) && !text.startsWith("/")) {
     return handleWithdrawalInput(chatId, message.from, text);
   }
-  if (pendingSearches.has(chatId) && !text.startsWith("/")) {
-    pendingSearches.delete(chatId);
+  if (pendingSearches.has(searchKey) && !text.startsWith("/")) {
+    pendingSearches.delete(searchKey);
     return showMarkets(chatId, 0, text);
   }
 
@@ -95,8 +96,8 @@ async function handleMessage(message) {
       return showMarkets(chatId);
     case "/search":
       if (args.length) return showMarkets(chatId, 0, args.join(" "));
-      pendingSearches.add(chatId);
-      return sendMessage(chatId, "Send a team name to search World Cup markets.");
+      pendingSearches.add(searchKey);
+      return sendMessage(chatId, `${userMention(message.from)}\n\nReply with a team name to search World Cup markets.`, forceReply("Team name"));
     case "/positions":
       if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to view your positions.");
       return showPositions(chatId, message.from);
@@ -127,8 +128,8 @@ async function handleCallback(callback) {
   if (data === "markets") return showMarkets(chatId, 0, "", editTarget);
   if (data.startsWith("markets:")) return showMarkets(chatId, Number(data.slice("markets:".length)) || 0, "", editTarget);
   if (data === "search") {
-    pendingSearches.add(chatId);
-    return sendMessage(chatId, "Send a team name to search World Cup markets.");
+    pendingSearches.add(pendingSearchKey(chatId, callback.from));
+    return sendMessage(chatId, `${userMention(callback.from)}\n\nReply with a team name to search World Cup markets.`, forceReply("Team name"));
   }
   if (data.startsWith("search:")) {
     const [, searchKey, pageText] = data.split(":");
@@ -196,7 +197,7 @@ async function handleCallback(callback) {
       price: market.price
     });
 
-    return sendMessage(chatId, `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply with an amount like 1 or 5.50, or send /cancel.`);
+    return sendMessage(chatId, `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply with an amount like 1 or 5.50, or send /cancel.`, forceReply("Amount in USDC"));
   }
 }
 
@@ -588,9 +589,21 @@ function pendingOrderKey(chatId, from = {}) {
   return `${chatId}:${from.id || "unknown"}`;
 }
 
+function pendingSearchKey(chatId, from = {}) {
+  return `${chatId}:${from.id || "unknown"}`;
+}
+
 function userMention(from = {}) {
   const name = from.username ? `@${from.username}` : [from.first_name, from.last_name].filter(Boolean).join(" ");
-  return name ? `${name}, this ticket is for you.` : "This ticket is for you.";
+  return name ? `${name},` : "Reply below.";
+}
+
+function forceReply(placeholder) {
+  return {
+    force_reply: true,
+    selective: true,
+    ...(placeholder ? { input_field_placeholder: placeholder } : {})
+  };
 }
 
 async function backendGet(path) {
