@@ -12,6 +12,7 @@ const marketCache = new Map();
 const pendingOrders = new Map();
 const pendingSearches = new Set();
 const pendingWithdrawals = new Map();
+let botUsernamePromise;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 250;
 const MARKET_PAGE_SIZE = 10;
@@ -78,13 +79,16 @@ async function handleMessage(message) {
     return showMarkets(chatId, 0, text);
   }
 
-  const [command, ...args] = text.split(/\s+/);
+  const [rawCommand, ...args] = text.split(/\s+/);
+  const command = rawCommand.split("@")[0];
   switch (command) {
     case "/start":
+      if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to create and manage your Xsporty wallet.");
       return start(chatId, message.from);
     case "/help":
       return sendMessage(chatId, HELP_TEXT, mainMenuButtons());
     case "/wallet":
+      if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to view your wallet.");
       return showWallet(chatId, message.from);
     case "/markets":
       return showMarkets(chatId);
@@ -93,10 +97,13 @@ async function handleMessage(message) {
       pendingSearches.add(chatId);
       return sendMessage(chatId, "Send a team name to search World Cup markets.");
     case "/positions":
+      if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to view your positions.");
       return showPositions(chatId, message.from);
     case "/claim":
+      if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to claim winnings.");
       return showClaims(chatId, message.from);
     case "/settings":
+      if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to use settings.");
       return showSettings(chatId);
     case "/cancel":
       pendingOrders.delete(chatId);
@@ -128,18 +135,42 @@ async function handleCallback(callback) {
     if (!query) return sendMessage(chatId, "That search expired. Send /search team name again.");
     return showMarkets(chatId, Number(pageText) || 0, query, editTarget);
   }
-  if (data === "wallet") return showWallet(chatId, callback.from);
-  if (data === "positions") return showPositions(chatId, callback.from);
-  if (data === "claims") return showClaims(chatId, callback.from);
-  if (data.startsWith("claim:")) return claimWinnings(chatId, callback.from, data.slice(6));
-  if (data === "settings") return showSettings(chatId);
-  if (data === "withdraw") return startWithdrawal(chatId, callback.from);
+  if (data === "wallet") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to view your wallet.");
+    return showWallet(chatId, callback.from);
+  }
+  if (data === "positions") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to view your positions.");
+    return showPositions(chatId, callback.from);
+  }
+  if (data === "claims") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to claim winnings.");
+    return showClaims(chatId, callback.from);
+  }
+  if (data.startsWith("claim:")) {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to claim winnings.");
+    return claimWinnings(chatId, callback.from, data.slice(6));
+  }
+  if (data === "settings") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to use settings.");
+    return showSettings(chatId);
+  }
+  if (data === "withdraw") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to withdraw USDC.");
+    return startWithdrawal(chatId, callback.from);
+  }
   if (data === "withdraw_cancel") {
     pendingWithdrawals.delete(chatId);
     return sendMessage(chatId, "Withdrawal cancelled.", mainMenuButtons());
   }
-  if (data === "withdraw_confirm") return confirmWithdrawal(chatId, callback.from);
-  if (data === "export") return showExportLink(chatId, callback.from);
+  if (data === "withdraw_confirm") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to withdraw USDC.");
+    return confirmWithdrawal(chatId, callback.from);
+  }
+  if (data === "export") {
+    if (!isPrivateChat(callback.message?.chat)) return promptPrivateChat(chatId, "Open me in private chat to export your wallet.");
+    return showExportLink(chatId, callback.from);
+  }
   if (data === "cancel") {
     pendingOrders.delete(chatId);
     pendingWithdrawals.delete(chatId);
@@ -602,6 +633,30 @@ async function sendOrEditMessage(chatId, editTarget, text, replyMarkup, options 
     return editMessage(chatId, editTarget.messageId, text, replyMarkup, options);
   }
   return sendMessage(chatId, text, replyMarkup, options);
+}
+
+async function promptPrivateChat(chatId, text) {
+  return sendMessage(chatId, text, await privateChatButtons());
+}
+
+async function privateChatButtons() {
+  const username = await getBotUsername();
+  return {
+    inline_keyboard: [[{ text: "Open private chat", url: `https://t.me/${username}` }]]
+  };
+}
+
+async function getBotUsername() {
+  botUsernamePromise ??= telegram("getMe", {}).then((data) => {
+    const username = data?.result?.username;
+    if (!username) throw new Error("Telegram bot username unavailable");
+    return username;
+  });
+  return botUsernamePromise;
+}
+
+function isPrivateChat(chat) {
+  return chat?.type === "private";
 }
 
 async function answerCallback(callbackQueryId) {
