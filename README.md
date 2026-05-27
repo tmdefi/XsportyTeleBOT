@@ -1,6 +1,6 @@
 # XsportyTeleBOT
 
-Standalone Telegram bot for World Cup market discovery and bot-side order placement.
+Standalone Telegram bot for Xsporty World Cup market discovery and bot-side order placement.
 
 The bot is intentionally separate from the backend repo and Railway service. It calls the backend's protected Telegram routes:
 

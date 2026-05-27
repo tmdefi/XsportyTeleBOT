@@ -15,7 +15,7 @@ const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 250;
 const MARKET_PAGE_SIZE = 10;
 const HELP_TEXT = [
-  "X Cup Markets commands:",
+  "Xsporty commands:",
   "",
   "/markets - Browse World Cup markets",
   "/search team - Search by team name",
@@ -30,7 +30,7 @@ const HELP_TEXT = [
 const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
-      return json(response, 200, { ok: true, service: "x-cup-telegram-bot" });
+      return json(response, 200, { ok: true, service: "xsporty-telegram-bot" });
     }
 
     if (request.method === "POST" && request.url === "/telegram/webhook") {
@@ -155,7 +155,7 @@ async function handleCallback(callback) {
 
 async function start(chatId, from) {
   const wallet = await ensureWallet(from);
-  return sendMessage(chatId, `Welcome to X Cup Markets.\n\nYour bot wallet deposit address:\n${wallet.address}\n\nFund it with X Layer testnet USDC before placing predictions.`, {
+  return sendMessage(chatId, `Welcome to Xsporty.\n\nYour bot wallet deposit address:\n${wallet.address}\n\nFund it with X Layer testnet USDC before placing predictions.`, {
     inline_keyboard: [
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
