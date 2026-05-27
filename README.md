@@ -1,4 +1,4 @@
-# X Cup Telegram Bot
+# XsportyTeleBOT
 
 Standalone Telegram bot for World Cup market discovery and bot-side order placement.
 
