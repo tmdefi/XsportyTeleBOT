@@ -10,7 +10,7 @@ const config = {
 
 const marketCache = new Map();
 const pendingOrders = new Map();
-const pendingSearches = new Set();
+const pendingSearches = new Map();
 const pendingWithdrawals = new Map();
 let botUsernamePromise;
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -77,8 +77,9 @@ async function handleMessage(message) {
     return handleWithdrawalInput(chatId, message.from, text);
   }
   if (pendingSearches.has(searchKey) && !text.startsWith("/")) {
+    const pendingSearch = pendingSearches.get(searchKey);
     pendingSearches.delete(searchKey);
-    return showMarkets(chatId, 0, text);
+    return showMarkets(chatId, 0, text, pendingSearch?.promptMessageId ? { messageId: pendingSearch.promptMessageId } : undefined);
   }
 
   const [rawCommand, ...args] = text.split(/\s+/);
@@ -96,8 +97,7 @@ async function handleMessage(message) {
       return showMarkets(chatId);
     case "/search":
       if (args.length) return showMarkets(chatId, 0, args.join(" "));
-      pendingSearches.add(searchKey);
-      return sendMessage(chatId, `${userMention(message.from)}\n\nReply with a team name to search World Cup markets.`, forceReply("Team name"));
+      return promptMarketSearch(chatId, message.from);
     case "/positions":
       if (!isPrivateChat(message.chat)) return promptPrivateChat(chatId, "Open me in private chat to view your positions.");
       return showPositions(chatId, message.from);
@@ -128,8 +128,7 @@ async function handleCallback(callback) {
   if (data === "markets") return showMarkets(chatId, 0, "", editTarget);
   if (data.startsWith("markets:")) return showMarkets(chatId, Number(data.slice("markets:".length)) || 0, "", editTarget);
   if (data === "search") {
-    pendingSearches.add(pendingSearchKey(chatId, callback.from));
-    return sendMessage(chatId, `${userMention(callback.from)}\n\nReply with a team name to search World Cup markets.`, forceReply("Team name"));
+    return promptMarketSearch(chatId, callback.from);
   }
   if (data.startsWith("search:")) {
     const [, searchKey, pageText] = data.split(":");
@@ -189,15 +188,17 @@ async function handleCallback(callback) {
     const market = getCachedMarket(chatId, data.slice(4));
     if (!market) return sendMessage(chatId, "That market is no longer available. Send /markets again.");
 
-    pendingOrders.set(pendingOrderKey(chatId, callback.from), {
+    const orderKey = pendingOrderKey(chatId, callback.from);
+    const prompt = await sendMessage(chatId, `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply with an amount like 1 or 5.50, or send /cancel.`, forceReply("Amount in USDC"));
+    pendingOrders.set(orderKey, {
       marketId: market.id,
       title: market.title,
       outcomeSide: market.outcomeSide,
       side: "BUY",
-      price: market.price
+      price: market.price,
+      promptMessageId: prompt?.result?.message_id
     });
-
-    return sendMessage(chatId, `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply with an amount like 1 or 5.50, or send /cancel.`, forceReply("Amount in USDC"));
+    return prompt;
   }
 }
 
@@ -276,6 +277,15 @@ async function showMarket(chatId, card, cardKey) {
   });
 }
 
+async function promptMarketSearch(chatId, from) {
+  const key = pendingSearchKey(chatId, from);
+  const prompt = await sendMessage(chatId, `${userMention(from)}\n\nReply with a team name to search World Cup markets.`, forceReply("Team name"));
+  pendingSearches.set(key, {
+    promptMessageId: prompt?.result?.message_id
+  });
+  return prompt;
+}
+
 async function placePendingOrder(chatId, from, amountText) {
   const key = pendingOrderKey(chatId, from);
   const pending = pendingOrders.get(key);
@@ -288,8 +298,9 @@ async function placePendingOrder(chatId, from, amountText) {
 
   const makerAmount = Math.max(1, Math.round(amount * 1_000_000)).toString();
   const takerAmount = Math.max(1, Math.round((amount / (pending.price / 100)) * 1_000_000)).toString();
+  const editTarget = pending.promptMessageId ? { messageId: pending.promptMessageId } : undefined;
 
-  await sendMessage(chatId, "Placing order...");
+  await sendOrEditMessage(chatId, editTarget, "Placing order...");
   try {
     const result = await backendPost("/telegram/orders", {
       ...telegramUser(from),
@@ -303,8 +314,9 @@ async function placePendingOrder(chatId, from, amountText) {
     pendingOrders.delete(key);
     const status = result.autoMatch?.matched ? "filled/matched" : "open";
     const hashes = orderHashLines(result, true);
-    return sendMessage(
+    return sendOrEditMessage(
       chatId,
+      editTarget,
       [
         htmlEscape("Order placed successfully."),
         "",
@@ -328,8 +340,9 @@ async function placePendingOrder(chatId, from, amountText) {
     );
   } catch (error) {
     console.error("Telegram order failed", error);
-    return sendMessage(
+    return sendOrEditMessage(
       chatId,
+      editTarget,
       `Order was not placed.\n\nReason: ${orderFailureMessage(error)}\n\nYou can try another amount, fund your wallet, or cancel this ticket.`,
       {
         inline_keyboard: [
@@ -654,7 +667,8 @@ async function editMessage(chatId, messageId, text, replyMarkup, options = {}) {
 
 async function sendOrEditMessage(chatId, editTarget, text, replyMarkup, options = {}) {
   if (editTarget?.messageId) {
-    return editMessage(chatId, editTarget.messageId, text, replyMarkup, options);
+    const edited = await editMessage(chatId, editTarget.messageId, text, replyMarkup, options);
+    if (edited?.ok !== false) return edited;
   }
   return sendMessage(chatId, text, replyMarkup, options);
 }
