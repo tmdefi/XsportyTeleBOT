@@ -181,7 +181,7 @@ async function handleCallback(callback) {
   if (data.startsWith("m:")) {
     const cached = getCachedCard(chatId, data.slice(2));
     if (!cached) return sendMessage(chatId, "That market list expired. Send /markets again.");
-    return showMarket(chatId, cached.card, cached.key);
+    return showMarket(chatId, cached.card, cached.key, editTarget);
   }
 
   if (data.startsWith("buy:")) {
@@ -189,14 +189,17 @@ async function handleCallback(callback) {
     if (!market) return sendMessage(chatId, "That market is no longer available. Send /markets again.");
 
     const orderKey = pendingOrderKey(chatId, callback.from);
-    const prompt = await sendMessage(chatId, `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply with an amount like 1 or 5.50, or send /cancel.`, forceReply("Amount in USDC"));
+    const promptText = `${userMention(callback.from)}\n\nAmount in USDC for:\n${market.title}\n\nOutcome: ${market.outcomeSide}\nPrice: ${market.price}c\n\nReply to this message with an amount like 1 or 5.50, or send /cancel.`;
+    const prompt = await sendOrEditMessage(chatId, editTarget, promptText, {
+      inline_keyboard: [[{ text: "Cancel", callback_data: "cancel" }]]
+    });
     pendingOrders.set(orderKey, {
       marketId: market.id,
       title: market.title,
       outcomeSide: market.outcomeSide,
       side: "BUY",
       price: market.price,
-      promptMessageId: prompt?.result?.message_id
+      promptMessageId: editTarget?.messageId || prompt?.result?.message_id
     });
     return prompt;
   }
@@ -259,7 +262,7 @@ async function showMarkets(chatId, page = 0, searchQuery = "", editTarget) {
   });
 }
 
-async function showMarket(chatId, card, cardKey) {
+async function showMarket(chatId, card, cardKey, editTarget) {
   const cache = chatMarketCache(chatId);
   const cached = cardKey ? cache.cards.get(cardKey) : undefined;
   const index = cached?.index ?? 0;
@@ -267,12 +270,12 @@ async function showMarket(chatId, card, cardKey) {
   const buttons = marketButtons(chatId, card, index);
 
   if (!buttons.length) {
-    return sendMessage(chatId, `${title}\n\nNo tradable markets are available for this match yet.`, {
+    return sendOrEditMessage(chatId, editTarget, `${title}\n\nNo tradable markets are available for this match yet.`, {
       inline_keyboard: [[{ text: "World Cup Markets", callback_data: "markets" }]]
     });
   }
 
-  return sendMessage(chatId, title, {
+  return sendOrEditMessage(chatId, editTarget, title, {
     inline_keyboard: buttons.map((button) => [button])
   });
 }
