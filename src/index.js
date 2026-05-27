@@ -113,9 +113,11 @@ async function handleCallback(callback) {
 
   await answerCallback(callback.id);
   const data = callback.data || "";
+  const messageId = callback.message?.message_id;
+  const editTarget = messageId ? { messageId } : undefined;
 
-  if (data === "markets") return showMarkets(chatId);
-  if (data.startsWith("markets:")) return showMarkets(chatId, Number(data.slice("markets:".length)) || 0);
+  if (data === "markets") return showMarkets(chatId, 0, "", editTarget);
+  if (data.startsWith("markets:")) return showMarkets(chatId, Number(data.slice("markets:".length)) || 0, "", editTarget);
   if (data === "search") {
     pendingSearches.add(chatId);
     return sendMessage(chatId, "Send a team name to search World Cup markets.");
@@ -124,7 +126,7 @@ async function handleCallback(callback) {
     const [, searchKey, pageText] = data.split(":");
     const query = getCachedSearch(chatId, searchKey);
     if (!query) return sendMessage(chatId, "That search expired. Send /search team name again.");
-    return showMarkets(chatId, Number(pageText) || 0, query);
+    return showMarkets(chatId, Number(pageText) || 0, query, editTarget);
   }
   if (data === "wallet") return showWallet(chatId, callback.from);
   if (data === "positions") return showPositions(chatId, callback.from);
@@ -189,7 +191,7 @@ async function showWallet(chatId, from) {
   });
 }
 
-async function showMarkets(chatId, page = 0, searchQuery = "") {
+async function showMarkets(chatId, page = 0, searchQuery = "", editTarget) {
   const offset = Math.max(0, page) * MARKET_PAGE_SIZE;
   const query = searchQuery.trim();
   const searchParam = query ? `&q=${encodeURIComponent(query)}` : "";
@@ -202,13 +204,13 @@ async function showMarkets(chatId, page = 0, searchQuery = "") {
   pruneChatCache(cache);
 
   if (!cards.length) {
-    return sendMessage(chatId, query ? `No World Cup markets found for "${query}".` : "No open World Cup markets are available right now.", {
+    return sendOrEditMessage(chatId, editTarget, query ? `No World Cup markets found for "${query}".` : "No open World Cup markets are available right now.", {
       inline_keyboard: [[{ text: "Search Team", callback_data: "search" }], [{ text: "World Cup Markets", callback_data: "markets" }]]
     });
   }
 
   const searchKey = query ? cacheSearch(cache, query) : "";
-  return sendMessage(chatId, `${query ? `Search: ${query}\n` : ""}World Cup markets (${currentPage + 1}/${totalPages}):`, {
+  return sendOrEditMessage(chatId, editTarget, `${query ? `Search: ${query}\n` : ""}World Cup markets (${currentPage + 1}/${totalPages}):`, {
     inline_keyboard: [
       ...cards.map((card, index) => {
       const key = cacheCard(cache, card, offset + index);
@@ -583,6 +585,23 @@ async function sendMessage(chatId, text, replyMarkup, options = {}) {
     ...options,
     ...(replyMarkup ? { reply_markup: replyMarkup } : {})
   });
+}
+
+async function editMessage(chatId, messageId, text, replyMarkup, options = {}) {
+  return telegram("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    ...options,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+  });
+}
+
+async function sendOrEditMessage(chatId, editTarget, text, replyMarkup, options = {}) {
+  if (editTarget?.messageId) {
+    return editMessage(chatId, editTarget.messageId, text, replyMarkup, options);
+  }
+  return sendMessage(chatId, text, replyMarkup, options);
 }
 
 async function answerCallback(callbackQueryId) {
