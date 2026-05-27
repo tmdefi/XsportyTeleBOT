@@ -1,0 +1,15 @@
+{
+  "name": "x-cup-telegram-bot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev:local": "node --env-file=.env scripts/poll-local.js",
+    "set-webhook": "node scripts/set-webhook.js",
+    "set-commands": "node scripts/set-commands.js"
+  }
+}
