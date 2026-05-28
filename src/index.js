@@ -5,7 +5,7 @@ const config = {
   botToken: required("BOT_TOKEN"),
   backendUrl: required("BACKEND_URL").replace(/\/$/, ""),
   backendBotApiKey: required("BACKEND_BOT_API_KEY"),
-  txExplorerBaseUrl: (process.env.TX_EXPLORER_BASE_URL || "https://www.oklink.com/x-layer-testnet/tx/").replace(/\/$/, "")
+  txExplorerBaseUrl: (process.env.TX_EXPLORER_BASE_URL || "https://www.okx.com/web3/explorer/xlayer/tx/").replace(/\/$/, "")
 };
 
 const marketCache = new Map();
@@ -207,7 +207,7 @@ async function handleCallback(callback) {
 
 async function start(chatId, from) {
   const wallet = await ensureWallet(from);
-  return sendMessage(chatId, `Welcome to Xsporty.\n\nYour bot wallet deposit address:\n${wallet.address}\n\nFund it with X Layer testnet USDC before placing predictions.`, {
+  return sendMessage(chatId, `Welcome to Xsporty.\n\nYour bot wallet deposit address:\n${wallet.address}\n\nFund it with X Layer USDC before placing predictions.`, {
     inline_keyboard: [
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
@@ -221,7 +221,7 @@ async function showWallet(chatId, from) {
   const wallet = await ensureWallet(from);
   const portfolio = await backendGet(`/portfolio/${wallet.address}`);
   const balance = usdcBalance(portfolio.collateral);
-  return sendMessage(chatId, `Wallet address:\n${wallet.address}\n\nUSDC balance:\n${balance} USDC\n\nUse this address to deposit X Layer testnet USDC.`, {
+  return sendMessage(chatId, `Wallet address:\n${wallet.address}\n\nUSDC balance:\n${balance} USDC\n\nUse this address to deposit X Layer USDC.`, {
     inline_keyboard: [
       [{ text: "Withdraw USDC", callback_data: "withdraw" }]
     ]
@@ -932,7 +932,7 @@ function orderFailureMessage(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   if (!message) return "Order submission failed";
   if (message.includes("Privy wallet balance or exchange approval is not ready")) {
-    return "Wallet balance or exchange approval is not ready. Fund the wallet with X Layer testnet USDC and try again.";
+    return "Wallet balance or exchange approval is not ready. Fund the wallet with X Layer USDC and try again.";
   }
   if (message.includes("Market not found")) return "This market is no longer available.";
   if (message.includes("Trading closed") || message.includes("Market closed")) return "Trading is closed for this market.";
