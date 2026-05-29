@@ -5,7 +5,9 @@ const config = {
   botToken: required("BOT_TOKEN"),
   backendUrl: required("BACKEND_URL").replace(/\/$/, ""),
   backendBotApiKey: required("BACKEND_BOT_API_KEY"),
-  txExplorerBaseUrl: (process.env.TX_EXPLORER_BASE_URL || "https://www.okx.com/web3/explorer/xlayer/tx/").replace(/\/$/, "")
+  txExplorerBaseUrl: (process.env.TX_EXPLORER_BASE_URL || "https://www.okx.com/web3/explorer/xlayer/tx/").replace(/\/$/, ""),
+  expectedChainId: Number(process.env.EXPECTED_XLAYER_CHAIN_ID || 196),
+  expectedUsdcAddress: (process.env.EXPECTED_USDC_ADDRESS || "0x74b7f16337b8972027f6196a17a631ac6de26d22").toLowerCase()
 };
 
 const marketCache = new Map();
@@ -16,6 +18,8 @@ let botUsernamePromise;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 250;
 const MARKET_PAGE_SIZE = 10;
+const NETWORK_LABEL = "X Layer mainnet";
+const COLLATERAL_LABEL = `${NETWORK_LABEL} USDC`;
 const HELP_TEXT = [
   "Xsporty commands:",
   "",
@@ -54,6 +58,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(config.port, "0.0.0.0", () => {
   console.log(`Telegram bot listening on :${config.port}`);
+  void validateBackendNetwork();
 });
 
 async function handleUpdate(update) {
@@ -207,7 +212,7 @@ async function handleCallback(callback) {
 
 async function start(chatId, from) {
   const wallet = await ensureWallet(from);
-  return sendMessage(chatId, `Welcome to Xsporty.\n\nYour bot wallet deposit address:\n${wallet.address}\n\nFund it with X Layer USDC before placing predictions.`, {
+  return sendMessage(chatId, `Welcome to Xsporty.\n\nYour bot wallet deposit address:\n${wallet.address}\n\nFund it with ${COLLATERAL_LABEL} before placing predictions.`, {
     inline_keyboard: [
       [{ text: "World Cup Markets", callback_data: "markets" }],
       [{ text: "Wallet", callback_data: "wallet" }, { text: "Positions", callback_data: "positions" }],
@@ -221,7 +226,7 @@ async function showWallet(chatId, from) {
   const wallet = await ensureWallet(from);
   const portfolio = await backendGet(`/portfolio/${wallet.address}`);
   const balance = usdcBalance(portfolio.collateral);
-  return sendMessage(chatId, `Wallet address:\n${wallet.address}\n\nUSDC balance:\n${balance} USDC\n\nUse this address to deposit X Layer USDC.`, {
+  return sendMessage(chatId, `Wallet address:\n${wallet.address}\n\nUSDC balance:\n${balance} USDC\n\nUse this address to deposit ${COLLATERAL_LABEL}.`, {
     inline_keyboard: [
       [{ text: "Withdraw USDC", callback_data: "withdraw" }]
     ]
@@ -641,6 +646,25 @@ async function backendPost(path, body) {
   return parseBackendResponse(response);
 }
 
+async function validateBackendNetwork() {
+  try {
+    const backendConfig = await backendGet("/wallet/config");
+    const chainId = Number(backendConfig?.chain?.id);
+    const collateralToken = String(backendConfig?.contracts?.collateralToken || "").toLowerCase();
+    if (chainId !== config.expectedChainId || collateralToken !== config.expectedUsdcAddress) {
+      console.error("Telegram bot backend network mismatch", {
+        backendUrl: config.backendUrl,
+        expectedChainId: config.expectedChainId,
+        actualChainId: chainId || null,
+        expectedUsdcAddress: config.expectedUsdcAddress,
+        actualCollateralToken: collateralToken || null
+      });
+    }
+  } catch (error) {
+    console.error("Telegram bot could not verify backend network", error);
+  }
+}
+
 async function parseBackendResponse(response) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -932,7 +956,7 @@ function orderFailureMessage(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   if (!message) return "Order submission failed";
   if (message.includes("Privy wallet balance or exchange approval is not ready")) {
-    return "Wallet balance or exchange approval is not ready. Fund the wallet with X Layer USDC and try again.";
+    return `Wallet balance or exchange approval is not ready. Fund the wallet with ${COLLATERAL_LABEL} and try again.`;
   }
   if (message.includes("Market not found")) return "This market is no longer available.";
   if (message.includes("Trading closed") || message.includes("Market closed")) return "Trading is closed for this market.";

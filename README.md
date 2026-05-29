@@ -21,9 +21,13 @@ BOT_TOKEN=
 BACKEND_URL=https://x-cup-backend-production.up.railway.app
 BACKEND_BOT_API_KEY=
 PUBLIC_URL=
+TX_EXPLORER_BASE_URL=https://www.okx.com/web3/explorer/xlayer/tx
+EXPECTED_XLAYER_CHAIN_ID=196
+EXPECTED_USDC_ADDRESS=0x74b7f16337b8972027f6196a17a631ac6de26d22
 ```
 
 `BACKEND_BOT_API_KEY` must match the backend `TELEGRAM_BOT_API_KEY`.
+The bot expects the backend to report X Layer mainnet (`196`) and mainnet USDC at `0x74b7f16337b8972027f6196a17a631ac6de26d22`.
 
 ## Railway
 
