@@ -237,7 +237,7 @@ async function showMarkets(chatId, page = 0, searchQuery = "", editTarget) {
   const offset = Math.max(0, page) * MARKET_PAGE_SIZE;
   const query = searchQuery.trim();
   const searchParam = query ? `&q=${encodeURIComponent(query)}` : "";
-  const data = await backendGet(`/markets/cards?sport=football&status=open&tradingStatus=open&competitionName=World%20Cup&limit=${MARKET_PAGE_SIZE}&offset=${offset}${searchParam}`);
+  const data = await backendGet(`/markets/cards?sport=football&category=match&status=open&tradingStatus=open&competitionName=World%20Cup&limit=${MARKET_PAGE_SIZE}&offset=${offset}${searchParam}`);
   const cards = Array.isArray(data.cards) ? data.cards : [];
   const total = Number(data.pagination?.total ?? data.total ?? offset + cards.length);
   const currentPage = Math.max(0, Math.floor(offset / MARKET_PAGE_SIZE));
